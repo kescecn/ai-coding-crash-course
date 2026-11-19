@@ -1,14 +1,7 @@
 import { formatPercent } from "~/lib/utils";
+import type { QuizAnalytics } from "~/services/instructorAnalyticsService";
 
-type QuizRow = {
-  quizId: number;
-  title: string;
-  students: number;
-  averageScore: number | null;
-  passRate: number | null;
-};
-
-export function QuizScoreTable({ quizzes }: { quizzes: QuizRow[] }) {
+export function QuizScoreTable({ quizzes }: { quizzes: QuizAnalytics[] }) {
   if (quizzes.length === 0) return null;
 
   return (
