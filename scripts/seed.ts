@@ -1814,6 +1814,44 @@ Go beyond the basics with generics, conditional types, and mapped types.`,
     ])
     .run();
 
+  // Three lessons so completion can be seeded: James finishes all of them,
+  // Liam is partway through, Sophia has only started.
+  const [course3Module] = db
+    .insert(schema.modules)
+    .values({
+      courseId: course3.id,
+      title: "Conditional Types",
+      position: 1,
+      createdAt: daysAgo(20),
+    })
+    .returning()
+    .all();
+
+  const course3LessonIds = db
+    .insert(schema.lessons)
+    .values(
+      ["Distributive Conditionals", "Infer Keyword", "Template Literal Types"].map(
+        (title, i) => ({
+          moduleId: course3Module.id,
+          title,
+          content: `## ${title}`,
+          position: i + 1,
+          durationMinutes: 12,
+          createdAt: daysAgo(20),
+        })
+      )
+    )
+    .returning()
+    .all()
+    .map((l) => l.id);
+
+  course3LessonIds.forEach((lessonId, i) =>
+    markComplete(students[1].id, lessonId, 17 - i)
+  );
+  markComplete(students[3].id, course3LessonIds[0], 11);
+  markComplete(students[3].id, course3LessonIds[1], 10);
+  markInProgress(students[4].id, course3LessonIds[0]);
+
   // James bought with a PPP discount (India)
   db.insert(schema.purchases)
     .values({
@@ -1858,7 +1896,7 @@ Go beyond the basics with generics, conditional types, and mapped types.`,
     )
     .run();
 
-  console.log("Created course 3 with 3 enrollments and 2 purchases.");
+  console.log("Created course 3 with 3 lessons, 3 enrollments, progress and 2 purchases.");
 
   console.log("\n✓ Seed complete!");
   console.log("  Users: 9 (1 admin, 2 instructors, 6 students)");

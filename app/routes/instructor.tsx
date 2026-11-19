@@ -2,13 +2,13 @@ import { Link } from "react-router";
 import type { Route } from "./+types/instructor";
 import { getCoursesByInstructor, getLessonCountForCourse } from "~/services/courseService";
 import { getInstructorAnalytics } from "~/services/instructorAnalyticsService";
-import { formatEarnings } from "~/lib/utils";
+import { formatCompletionRate, formatEarnings } from "~/lib/utils";
 import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
-import { AlertTriangle, BookOpen, DollarSign, GraduationCap, Plus, Users } from "lucide-react";
+import { AlertTriangle, BookOpen, CheckCircle2, DollarSign, GraduationCap, Plus, Users } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
 import { CourseStatus, UserRole } from "~/db/schema";
@@ -58,6 +58,7 @@ export async function loader({ request }: Route.LoaderArgs) {
       lessonCount,
       studentCount: courseAnalytics?.students ?? 0,
       earnings: courseAnalytics?.earnings ?? 0,
+      completionRate: courseAnalytics?.completionRate ?? null,
       createdAt: course.createdAt,
       updatedAt: course.updatedAt,
     };
@@ -67,6 +68,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     courses: coursesWithStats,
     totalStudents: analytics.totalStudents,
     totalEarnings: analytics.totalEarnings,
+    completionRate: analytics.completionRate,
   };
 }
 
@@ -132,7 +134,7 @@ export function HydrateFallback() {
 export default function InstructorDashboard({
   loaderData,
 }: Route.ComponentProps) {
-  const { courses, totalStudents, totalEarnings } = loaderData;
+  const { courses, totalStudents, totalEarnings, completionRate } = loaderData;
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -161,7 +163,7 @@ export default function InstructorDashboard({
       </div>
 
       {courses.length > 0 && (
-        <div className="mb-8 grid gap-4 sm:grid-cols-2">
+        <div className="mb-8 grid gap-4 sm:grid-cols-3">
           <Card>
             <CardContent className="flex items-center gap-4">
               <Users className="size-8 text-muted-foreground" />
@@ -177,6 +179,17 @@ export default function InstructorDashboard({
               <div>
                 <p className="text-sm text-muted-foreground">Total earnings</p>
                 <p className="text-2xl font-bold">{formatEarnings(totalEarnings)}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-4">
+              <CheckCircle2 className="size-8 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Completion rate</p>
+                <p className="text-2xl font-bold">
+                  {formatCompletionRate(completionRate)}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -241,6 +254,14 @@ export default function InstructorDashboard({
                   <div className="flex items-center gap-1.5">
                     <DollarSign className="size-4" />
                     <span>{formatEarnings(course.earnings)} earned</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="size-4" />
+                    <span>
+                      {course.completionRate === null
+                        ? "No data yet"
+                        : `${formatCompletionRate(course.completionRate)} completed`}
+                    </span>
                   </div>
                 </div>
               </CardContent>

@@ -68,6 +68,7 @@ describe("getInstructorAnalytics", () => {
     expect(getInstructorAnalytics(other.id, "all")).toEqual({
       totalStudents: 0,
       totalEarnings: 0,
+      completionRate: null,
       courses: [],
     });
   });
@@ -75,7 +76,12 @@ describe("getInstructorAnalytics", () => {
   it("shows $0 and 0 students for a course with no purchases", () => {
     const result = getInstructorAnalytics(base.instructor.id, "all");
     expect(result.courses).toEqual([
-      { courseId: base.course.id, students: 0, earnings: 0 },
+      {
+        courseId: base.course.id,
+        students: 0,
+        earnings: 0,
+        completionRate: null,
+      },
     ]);
     expect(result.totalStudents).toBe(0);
     expect(result.totalEarnings).toBe(0);
@@ -160,5 +166,97 @@ describe("getInstructorAnalytics", () => {
     expect(result.courses.map((c) => c.courseId)).toEqual([base.course.id]);
     expect(result.totalStudents).toBe(0);
     expect(result.totalEarnings).toBe(0);
+  });
+
+  describe("completion rate", () => {
+    function addLessons(courseId: number, count: number) {
+      const mod = testDb
+        .insert(schema.modules)
+        .values({ courseId, title: "M", position: 1 })
+        .returning()
+        .get();
+      return Array.from({ length: count }, (_, i) =>
+        testDb
+          .insert(schema.lessons)
+          .values({ moduleId: mod.id, title: `L${i}`, position: i + 1 })
+          .returning()
+          .get()
+      );
+    }
+
+    function complete(userId: number, lessonId: number) {
+      testDb
+        .insert(schema.lessonProgress)
+        .values({
+          userId,
+          lessonId,
+          status: schema.LessonProgressStatus.Completed,
+        })
+        .run();
+    }
+
+    it("counts a student complete only when every lesson is completed", () => {
+      const lessons = addLessons(base.course.id, 3);
+      const done = addStudent(1);
+      const partial = addStudent(2);
+      enroll(done.id, base.course.id);
+      enroll(partial.id, base.course.id);
+      lessons.forEach((l) => complete(done.id, l.id));
+      lessons.slice(0, 2).forEach((l) => complete(partial.id, l.id));
+
+      const result = getInstructorAnalytics(base.instructor.id, "all");
+      expect(result.courses[0].completionRate).toBe(0.5);
+      expect(result.completionRate).toBe(0.5);
+    });
+
+    it("does not count in-progress lessons as completed", () => {
+      const lessons = addLessons(base.course.id, 1);
+      const a = addStudent(1);
+      enroll(a.id, base.course.id);
+      testDb
+        .insert(schema.lessonProgress)
+        .values({
+          userId: a.id,
+          lessonId: lessons[0].id,
+          status: schema.LessonProgressStatus.InProgress,
+        })
+        .run();
+
+      expect(getInstructorAnalytics(base.instructor.id, "all").courses[0].completionRate).toBe(0);
+    });
+
+    it("pools the overall rate across enrollments instead of averaging course rates", () => {
+      const second = addCourse(base.instructor.id, "second");
+      const l1 = addLessons(base.course.id, 1);
+      const l2 = addLessons(second.id, 1);
+      // Course 1: 1 of 1 complete (100%). Course 2: 1 of 3 complete (33%).
+      const s1 = addStudent(1);
+      const s2 = addStudent(2);
+      const s3 = addStudent(3);
+      const s4 = addStudent(4);
+      enroll(s1.id, base.course.id);
+      complete(s1.id, l1[0].id);
+      [s2, s3, s4].forEach((s) => enroll(s.id, second.id));
+      complete(s2.id, l2[0].id);
+
+      const result = getInstructorAnalytics(base.instructor.id, "all");
+      expect(result.courses.map((c) => c.completionRate)).toEqual([1, 1 / 3]);
+      expect(result.completionRate).toBe(0.5); // 2 of 4, not (1 + 1/3) / 2
+    });
+
+    it("is null for a course with no students or no lessons", () => {
+      const noStudents = addCourse(base.instructor.id, "empty");
+      addLessons(noStudents.id, 2);
+      const noLessons = addCourse(base.instructor.id, "no-lessons");
+      enroll(addStudent(1).id, noLessons.id);
+
+      const result = getInstructorAnalytics(base.instructor.id, "all");
+      const rates = Object.fromEntries(
+        result.courses.map((c) => [c.courseId, c.completionRate])
+      );
+      expect(rates[noStudents.id]).toBeNull();
+      expect(rates[noLessons.id]).toBeNull();
+      expect(result.completionRate).toBeNull();
+    });
   });
 });
