@@ -14,9 +14,9 @@ export function formatPrice(cents: number | null | undefined): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
-/** A 0–1 completion rate as a whole percent; null (no students or lessons) is "No data yet". */
-export function formatCompletionRate(rate: number | null): string {
-  return rate === null ? "No data yet" : `${Math.round(rate * 100)}%`;
+/** A 0–1 ratio as a whole percent; null (nothing to measure) is "No data yet". */
+export function formatPercent(ratio: number | null): string {
+  return ratio === null ? "No data yet" : `${Math.round(ratio * 100)}%`;
 }
 
 /** Money earned, in cents → "$X.XX". Unlike formatPrice, zero is "$0.00", not "Free". */

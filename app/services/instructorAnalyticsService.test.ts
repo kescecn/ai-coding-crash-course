@@ -69,6 +69,7 @@ describe("getInstructorAnalytics", () => {
       totalStudents: 0,
       totalEarnings: 0,
       completionRate: null,
+      averageQuizScore: null,
       courses: [],
     });
   });
@@ -81,6 +82,8 @@ describe("getInstructorAnalytics", () => {
         students: 0,
         earnings: 0,
         completionRate: null,
+        averageQuizScore: null,
+        quizzes: [],
       },
     ]);
     expect(result.totalStudents).toBe(0);
@@ -257,6 +260,95 @@ describe("getInstructorAnalytics", () => {
       expect(rates[noStudents.id]).toBeNull();
       expect(rates[noLessons.id]).toBeNull();
       expect(result.completionRate).toBeNull();
+    });
+  });
+
+  describe("quiz scores", () => {
+    function addQuiz(courseId: number, title: string, passingScore = 0.7) {
+      const mod = testDb
+        .insert(schema.modules)
+        .values({ courseId, title: "M", position: 1 })
+        .returning()
+        .get();
+      const lesson = testDb
+        .insert(schema.lessons)
+        .values({ moduleId: mod.id, title: "L", position: 1 })
+        .returning()
+        .get();
+      return testDb
+        .insert(schema.quizzes)
+        .values({ lessonId: lesson.id, title, passingScore })
+        .returning()
+        .get();
+    }
+
+    function attempt(userId: number, quizId: number, score: number) {
+      testDb
+        .insert(schema.quizAttempts)
+        .values({ userId, quizId, score, passed: score >= 0.7 })
+        .run();
+    }
+
+    it("uses each student's best attempt so a retake doesn't drag the average down", () => {
+      const quiz = addQuiz(base.course.id, "Basics");
+      const a = addStudent(1);
+      const b = addStudent(2);
+      attempt(a.id, quiz.id, 0.4); // fail, then pass on retake
+      attempt(a.id, quiz.id, 0.9);
+      attempt(b.id, quiz.id, 0.5);
+
+      const course = getInstructorAnalytics(base.instructor.id, "all").courses[0];
+      expect(course.quizzes).toEqual([
+        {
+          quizId: quiz.id,
+          title: "Basics",
+          students: 2,
+          averageScore: 0.7,
+          passRate: 0.5,
+        },
+      ]);
+      expect(course.averageQuizScore).toBe(0.7);
+    });
+
+    it("shows no data for a quiz with no attempts and for a course without any", () => {
+      const quiz = addQuiz(base.course.id, "Untouched");
+
+      const result = getInstructorAnalytics(base.instructor.id, "all");
+      expect(result.courses[0].quizzes).toEqual([
+        {
+          quizId: quiz.id,
+          title: "Untouched",
+          students: 0,
+          averageScore: null,
+          passRate: null,
+        },
+      ]);
+      expect(result.courses[0].averageQuizScore).toBeNull();
+      expect(result.averageQuizScore).toBeNull();
+    });
+
+    it("pools best attempts across courses for the overall average and ignores other instructors", () => {
+      const second = addCourse(base.instructor.id, "second");
+      const q1 = addQuiz(base.course.id, "Q1");
+      const q2 = addQuiz(second.id, "Q2");
+      const a = addStudent(1);
+      const b = addStudent(2);
+      attempt(a.id, q1.id, 1);
+      attempt(a.id, q2.id, 0.5);
+      attempt(b.id, q2.id, 0.9);
+
+      const other = testDb
+        .insert(schema.users)
+        .values({ name: "O", email: "o@example.com", role: schema.UserRole.Instructor })
+        .returning()
+        .get();
+      const theirs = addQuiz(addCourse(other.id, "theirs").id, "Theirs");
+      attempt(a.id, theirs.id, 0);
+
+      const result = getInstructorAnalytics(base.instructor.id, "all");
+      expect(result.courses.map((c) => c.averageQuizScore)).toEqual([1, 0.7]);
+      // (1 + 0.5 + 0.9) / 3, not the mean of 1 and 0.7
+      expect(result.averageQuizScore).toBeCloseTo(0.8);
     });
   });
 });

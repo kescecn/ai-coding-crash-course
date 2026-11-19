@@ -1852,6 +1852,41 @@ Go beyond the basics with generics, conditional types, and mapped types.`,
   markComplete(students[3].id, course3LessonIds[1], 10);
   markInProgress(students[4].id, course3LessonIds[0]);
 
+  // Two quizzes: James fails then passes on a retake and Liam passes first
+  // time on the first; the second has no attempts yet.
+  const [course3Quiz1] = db
+    .insert(schema.quizzes)
+    .values([
+      {
+        lessonId: course3LessonIds[0],
+        title: "Conditional Types Quiz",
+        passingScore: 0.7,
+      },
+      {
+        lessonId: course3LessonIds[2],
+        title: "Template Literal Types Quiz",
+        passingScore: 0.7,
+      },
+    ])
+    .returning()
+    .all();
+
+  db.insert(schema.quizAttempts)
+    .values(
+      [
+        { userId: students[1].id, score: 0.4, days: 17 },
+        { userId: students[1].id, score: 0.9, days: 16 },
+        { userId: students[3].id, score: 0.8, days: 10 },
+      ].map(({ userId, score, days }) => ({
+        userId,
+        quizId: course3Quiz1.id,
+        score,
+        passed: score >= 0.7,
+        attemptedAt: daysAgo(days),
+      }))
+    )
+    .run();
+
   // James bought with a PPP discount (India)
   db.insert(schema.purchases)
     .values({
@@ -1896,7 +1931,7 @@ Go beyond the basics with generics, conditional types, and mapped types.`,
     )
     .run();
 
-  console.log("Created course 3 with 3 lessons, 3 enrollments, progress and 2 purchases.");
+  console.log("Created course 3 with 3 lessons, 2 quizzes, 3 enrollments, progress and 2 purchases.");
 
   console.log("\n✓ Seed complete!");
   console.log("  Users: 9 (1 admin, 2 instructors, 6 students)");

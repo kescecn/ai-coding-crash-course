@@ -2,13 +2,14 @@ import { Link } from "react-router";
 import type { Route } from "./+types/instructor";
 import { getCoursesByInstructor, getLessonCountForCourse } from "~/services/courseService";
 import { getInstructorAnalytics } from "~/services/instructorAnalyticsService";
-import { formatCompletionRate, formatEarnings } from "~/lib/utils";
+import { formatPercent, formatEarnings } from "~/lib/utils";
 import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
-import { AlertTriangle, BookOpen, CheckCircle2, DollarSign, GraduationCap, Plus, Users } from "lucide-react";
+import { AlertTriangle, BookOpen, CheckCircle2, ClipboardCheck, DollarSign, GraduationCap, Plus, Users } from "lucide-react";
+import { QuizScoreTable } from "~/components/quiz-score-table";
 import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
 import { CourseStatus, UserRole } from "~/db/schema";
@@ -59,6 +60,8 @@ export async function loader({ request }: Route.LoaderArgs) {
       studentCount: courseAnalytics?.students ?? 0,
       earnings: courseAnalytics?.earnings ?? 0,
       completionRate: courseAnalytics?.completionRate ?? null,
+      averageQuizScore: courseAnalytics?.averageQuizScore ?? null,
+      quizzes: courseAnalytics?.quizzes ?? [],
       createdAt: course.createdAt,
       updatedAt: course.updatedAt,
     };
@@ -69,6 +72,7 @@ export async function loader({ request }: Route.LoaderArgs) {
     totalStudents: analytics.totalStudents,
     totalEarnings: analytics.totalEarnings,
     completionRate: analytics.completionRate,
+    averageQuizScore: analytics.averageQuizScore,
   };
 }
 
@@ -134,7 +138,8 @@ export function HydrateFallback() {
 export default function InstructorDashboard({
   loaderData,
 }: Route.ComponentProps) {
-  const { courses, totalStudents, totalEarnings, completionRate } = loaderData;
+  const { courses, totalStudents, totalEarnings, completionRate, averageQuizScore } =
+    loaderData;
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -163,7 +168,7 @@ export default function InstructorDashboard({
       </div>
 
       {courses.length > 0 && (
-        <div className="mb-8 grid gap-4 sm:grid-cols-3">
+        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardContent className="flex items-center gap-4">
               <Users className="size-8 text-muted-foreground" />
@@ -188,7 +193,18 @@ export default function InstructorDashboard({
               <div>
                 <p className="text-sm text-muted-foreground">Completion rate</p>
                 <p className="text-2xl font-bold">
-                  {formatCompletionRate(completionRate)}
+                  {formatPercent(completionRate)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-4">
+              <ClipboardCheck className="size-8 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Average quiz score</p>
+                <p className="text-2xl font-bold">
+                  {formatPercent(averageQuizScore)}
                 </p>
               </div>
             </CardContent>
@@ -236,7 +252,7 @@ export default function InstructorDashboard({
                 </p>
               </CardHeader>
               <CardContent className="flex-1">
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
                   <div className="flex items-center gap-1.5">
                     <BookOpen className="size-4" />
                     <span>
@@ -259,11 +275,20 @@ export default function InstructorDashboard({
                     <CheckCircle2 className="size-4" />
                     <span>
                       {course.completionRate === null
-                        ? formatCompletionRate(null)
-                        : `${formatCompletionRate(course.completionRate)} completed`}
+                        ? formatPercent(null)
+                        : `${formatPercent(course.completionRate)} completed`}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <ClipboardCheck className="size-4" />
+                    <span>
+                      {course.averageQuizScore === null
+                        ? formatPercent(null)
+                        : `${formatPercent(course.averageQuizScore)} avg quiz score`}
                     </span>
                   </div>
                 </div>
+                <QuizScoreTable quizzes={course.quizzes} />
               </CardContent>
               <CardFooter>
                 <Link to={`/instructor/${course.id}`} className="w-full">
