@@ -12,6 +12,11 @@ import { data, isRouteErrorResponse } from "react-router";
 import { CourseStatus, UserRole } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
 import { DollarSign } from "lucide-react";
+import { ClipboardCheck } from "lucide-react";
+import {
+  QuizPerformanceTable,
+  formatPercent,
+} from "~/components/quiz-performance-table";
 
 export function meta() {
   return [
@@ -169,6 +174,17 @@ export default function InstructorDashboard({
               </div>
             </CardContent>
           </Card>
+          <Card>
+            <CardContent className="flex items-center gap-3">
+              <ClipboardCheck className="size-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Avg quiz score</p>
+                <p className="text-2xl font-bold">
+                  {formatPercent(summary.avgQuizScore)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {courses.map((course) => (
@@ -215,6 +231,11 @@ export default function InstructorDashboard({
                     <span>{formatPrice(course.earnings)}</span>
                   </div>
                 </div>
+                <div className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <ClipboardCheck className="size-4" />
+                  <span>Avg quiz score: {formatPercent(course.avgQuizScore)}</span>
+                </div>
+                <QuizPerformanceTable quizzes={course.quizzes} />
               </CardContent>
               <CardFooter>
                 <Link to={`/instructor/${course.id}`} className="w-full">
