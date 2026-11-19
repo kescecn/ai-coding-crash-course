@@ -1400,10 +1400,16 @@ You've completed the Building REST APIs course. You now have the skills to build
       { userId: students[2].id, courseId: course2.id, enrolledAt: daysAgo(30) },
       { userId: students[3].id, courseId: course2.id, enrolledAt: daysAgo(25) },
       { userId: students[4].id, courseId: course1.id, enrolledAt: daysAgo(15) },
+      {
+        userId: students[4].id,
+        courseId: course2.id,
+        enrolledAt: daysAgo(20),
+        completedAt: daysAgo(2),
+      },
     ])
     .run();
 
-  console.log("Created 7 enrollments.");
+  console.log("Created 8 enrollments.");
 
   // ─── Course Ratings ───
   // Star ratings from enrolled students only. Not everyone rates.
@@ -1653,6 +1659,11 @@ You've completed the Building REST APIs course. You now have the skills to build
   // Sophia (students[4]) — barely started course 1 (1 lesson done)
   markComplete(students[4].id, course1LessonIds[0], 12);
   markInProgress(students[4].id, course1LessonIds[1]);
+
+  // Sophia — also finished every lesson of course 2 (the fully completed student)
+  for (let i = 0; i < course2LessonIds.length; i++) {
+    markComplete(students[4].id, course2LessonIds[i], 19 - Math.floor(i / 2));
+  }
 
   console.log("Created lesson progress records.");
 

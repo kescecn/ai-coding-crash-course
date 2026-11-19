@@ -148,13 +148,103 @@ describe("getInstructorAnalytics", () => {
     const result = getInstructorAnalytics(base.instructor.id);
 
     expect(result.courses.map((c) => c.id)).toEqual([base.course.id]);
-    expect(result.summary).toEqual({ students: 0, earnings: 0 });
+    expect(result.summary).toEqual({ students: 0, earnings: 0, completionRate: null });
   });
 
   it("returns an empty result for an instructor with no courses", () => {
     const result = getInstructorAnalytics(base.user.id);
 
     expect(result.courses).toEqual([]);
-    expect(result.summary).toEqual({ students: 0, earnings: 0 });
+    expect(result.summary).toEqual({ students: 0, earnings: 0, completionRate: null });
+  });
+
+  describe("completion rate", () => {
+    function addLessons(courseId: number, count: number) {
+      const mod = testDb
+        .insert(schema.modules)
+        .values({ courseId, title: "m", position: 1 })
+        .returning()
+        .get();
+      return testDb
+        .insert(schema.lessons)
+        .values(
+          Array.from({ length: count }, (_, i) => ({
+            moduleId: mod.id,
+            title: `l${i}`,
+            position: i + 1,
+          }))
+        )
+        .returning()
+        .all();
+    }
+
+    function complete(userId: number, lessonIds: number[]) {
+      testDb
+        .insert(schema.lessonProgress)
+        .values(
+          lessonIds.map((lessonId) => ({
+            userId,
+            lessonId,
+            status: schema.LessonProgressStatus.Completed,
+            completedAt: new Date().toISOString(),
+          }))
+        )
+        .run();
+    }
+
+    it("counts a student complete only when every lesson is completed", () => {
+      const ls = addLessons(base.course.id, 2);
+      const a = addStudent("a@x.com");
+      const b = addStudent("b@x.com");
+      enroll(a.id, base.course.id);
+      enroll(b.id, base.course.id);
+      complete(a.id, ls.map((l) => l.id));
+      complete(b.id, [ls[0].id]);
+      testDb
+        .insert(schema.lessonProgress)
+        .values({
+          userId: b.id,
+          lessonId: ls[1].id,
+          status: schema.LessonProgressStatus.InProgress,
+        })
+        .run();
+
+      const result = getInstructorAnalytics(base.instructor.id);
+
+      expect(result.courses[0].completionRate).toBe(0.5);
+    });
+
+    it("pools the overall rate across enrollments rather than averaging course rates", () => {
+      const second = addCourse(base.instructor.id, "second");
+      const l1 = addLessons(base.course.id, 1);
+      const l2 = addLessons(second.id, 1);
+      const students = ["a", "b", "c"].map((n) => addStudent(`${n}@x.com`));
+      // course 1: 1 student, complete (100%). course 2: 3 students, 0 complete.
+      enroll(students[0].id, base.course.id);
+      complete(students[0].id, [l1[0].id]);
+      students.forEach((s) => enroll(s.id, second.id));
+
+      const result = getInstructorAnalytics(base.instructor.id);
+      const byId = new Map(result.courses.map((c) => [c.id, c]));
+
+      expect(byId.get(base.course.id)!.completionRate).toBe(1);
+      expect(byId.get(second.id)!.completionRate).toBe(0);
+      expect(result.summary.completionRate).toBe(0.25);
+      void l2;
+    });
+
+    it("is null for a course with no students or no lessons", () => {
+      const noStudents = addCourse(base.instructor.id, "empty");
+      addLessons(noStudents.id, 2);
+      const noLessons = addCourse(base.instructor.id, "nolessons");
+      enroll(base.user.id, noLessons.id);
+
+      const result = getInstructorAnalytics(base.instructor.id);
+      const byId = new Map(result.courses.map((c) => [c.id, c]));
+
+      expect(byId.get(noStudents.id)!.completionRate).toBeNull();
+      expect(byId.get(noLessons.id)!.completionRate).toBeNull();
+      expect(result.summary.completionRate).toBeNull();
+    });
   });
 });

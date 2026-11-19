@@ -11,7 +11,11 @@ import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
 import { CourseStatus, UserRole } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
-import { DollarSign } from "lucide-react";
+import { CheckCircle2, DollarSign } from "lucide-react";
+
+function formatCompletionRate(rate: number | null) {
+  return rate === null ? "No data yet" : `${Math.round(rate * 100)}%`;
+}
 
 export function meta() {
   return [
@@ -148,7 +152,7 @@ export default function InstructorDashboard({
         </div>
       ) : (
         <>
-        <div className="mb-8 grid gap-4 sm:grid-cols-2">
+        <div className="mb-8 grid gap-4 sm:grid-cols-3">
           <Card>
             <CardContent className="flex items-center gap-3">
               <Users className="size-5 text-muted-foreground" />
@@ -165,6 +169,17 @@ export default function InstructorDashboard({
                 <p className="text-sm text-muted-foreground">Earnings</p>
                 <p className="text-2xl font-bold">
                   {formatPrice(summary.earnings)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-3">
+              <CheckCircle2 className="size-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Completion rate</p>
+                <p className="text-2xl font-bold">
+                  {formatCompletionRate(summary.completionRate)}
                 </p>
               </div>
             </CardContent>
@@ -213,6 +228,10 @@ export default function InstructorDashboard({
                   <div className="flex items-center gap-1.5">
                     <DollarSign className="size-4" />
                     <span>{formatPrice(course.earnings)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="size-4" />
+                    <span>{formatCompletionRate(course.completionRate)}</span>
                   </div>
                 </div>
               </CardContent>
