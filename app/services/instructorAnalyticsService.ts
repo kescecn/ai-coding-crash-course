@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql, type SQL } from "drizzle-orm";
 import { db } from "~/db";
 import {
   courses,
@@ -16,7 +16,31 @@ import {
 // Per-course and total student/earnings figures for an instructor's dashboard.
 // Uses positional parameters (project convention).
 
-export type AnalyticsRange = "all";
+export const ANALYTICS_RANGES = ["7d", "30d", "12m", "all"] as const;
+export type AnalyticsRange = (typeof ANALYTICS_RANGES)[number];
+
+// An unrecognised or missing value falls back to all time.
+export function parseRange(value: string | null): AnalyticsRange {
+  return ANALYTICS_RANGES.find((r) => r === value) ?? "all";
+}
+
+// ISO start of the window, or null for all time. Timestamps are stored as ISO
+// strings, so they compare correctly as text.
+function rangeStart(range: AnalyticsRange, now: Date): string | null {
+  switch (range) {
+    case "7d":
+      return new Date(now.getTime() - 7 * 86_400_000).toISOString();
+    case "30d":
+      return new Date(now.getTime() - 30 * 86_400_000).toISOString();
+    case "12m": {
+      const start = new Date(now);
+      start.setUTCFullYear(start.getUTCFullYear() - 1);
+      return start.toISOString();
+    }
+    case "all":
+      return null;
+  }
+}
 
 export type QuizAnalytics = {
   quizId: number;
@@ -50,15 +74,14 @@ export type InstructorAnalytics = {
   courses: CourseAnalytics[];
 };
 
-// `now` is part of the signature so date-bounded ranges can slot in later;
-// the "all" range ignores it.
+// Earnings filter by purchase date and quiz scores by attempt date. Students
+// and completion use the cohort that enrolled in the window.
 export function getInstructorAnalytics(
   instructorId: number,
   range: AnalyticsRange,
   now: Date = new Date()
 ): InstructorAnalytics {
-  void range;
-  void now;
+  const start = rangeStart(range, now);
 
   const owned = db
     .select({ id: courses.id })
@@ -68,7 +91,13 @@ export function getInstructorAnalytics(
     .all();
 
   if (owned.length === 0) {
-    return { totalStudents: 0, totalEarnings: 0, completionRate: null, averageQuizScore: null, courses: [] };
+    return {
+      totalStudents: 0,
+      totalEarnings: 0,
+      completionRate: null,
+      averageQuizScore: null,
+      courses: [],
+    };
   }
 
   const courseIds = owned.map((c) => c.id);
@@ -79,7 +108,12 @@ export function getInstructorAnalytics(
       students: sql<number>`count(distinct ${enrollments.userId})`,
     })
     .from(enrollments)
-    .where(inArray(enrollments.courseId, courseIds))
+    .where(
+      and(
+        inArray(enrollments.courseId, courseIds),
+        since(enrollments.enrolledAt, start)
+      )
+    )
     .groupBy(enrollments.courseId)
     .all();
 
@@ -89,7 +123,12 @@ export function getInstructorAnalytics(
       earnings: sql<number>`sum(${purchases.pricePaid})`,
     })
     .from(purchases)
-    .where(inArray(purchases.courseId, courseIds))
+    .where(
+      and(
+        inArray(purchases.courseId, courseIds),
+        since(purchases.createdAt, start)
+      )
+    )
     .groupBy(purchases.courseId)
     .all();
 
@@ -97,14 +136,23 @@ export function getInstructorAnalytics(
     db
       .select({ n: sql<number>`count(distinct ${enrollments.userId})` })
       .from(enrollments)
-      .where(inArray(enrollments.courseId, courseIds))
+      .where(
+        and(
+          inArray(enrollments.courseId, courseIds),
+          since(enrollments.enrolledAt, start)
+        )
+      )
       .get()?.n ?? 0;
 
-  const studentsByCourse = new Map(studentRows.map((r) => [r.courseId, r.students]));
-  const earningsByCourse = new Map(earningsRows.map((r) => [r.courseId, r.earnings]));
+  const studentsByCourse = new Map(
+    studentRows.map((r) => [r.courseId, r.students])
+  );
+  const earningsByCourse = new Map(
+    earningsRows.map((r) => [r.courseId, r.earnings])
+  );
 
-  const completion = getCompletionCounts(courseIds);
-  const quizStats = getQuizStats(courseIds);
+  const completion = getCompletionCounts(courseIds, start);
+  const quizStats = getQuizStats(courseIds, start);
 
   const perCourse = courseIds.map((courseId) => {
     const counts = completion.get(courseId);
@@ -137,6 +185,14 @@ export function getInstructorAnalytics(
   };
 }
 
+// A lower bound on a timestamp column, or no condition for all time.
+function since(
+  column: Parameters<typeof gte>[0],
+  start: string | null
+): SQL | undefined {
+  return start === null ? undefined : gte(column, start);
+}
+
 function mean(values: number[]): number | null {
   return values.length === 0
     ? null
@@ -149,7 +205,7 @@ function rate(part: number, whole: number): number | null {
 
 // Per course: distinct enrolled students and how many of them completed every
 // lesson. Courses with no lessons are left out — nobody can complete them.
-function getCompletionCounts(courseIds: number[]) {
+function getCompletionCounts(courseIds: number[], start: string | null) {
   const lessonCounts = new Map(
     db
       .select({
@@ -191,7 +247,12 @@ function getCompletionCounts(courseIds: number[]) {
       userId: enrollments.userId,
     })
     .from(enrollments)
-    .where(inArray(enrollments.courseId, courseIds))
+    .where(
+      and(
+        inArray(enrollments.courseId, courseIds),
+        since(enrollments.enrolledAt, start)
+      )
+    )
     .all();
 
   const result = new Map<number, { enrolled: number; completed: number }>();
@@ -211,7 +272,7 @@ function getCompletionCounts(courseIds: number[]) {
 // Per course: its quizzes with per-quiz rows, plus every best score so course
 // and overall averages can be pooled. A student's best attempt per quiz is the
 // only one that counts, so a retake never drags the average down.
-function getQuizStats(courseIds: number[]) {
+function getQuizStats(courseIds: number[], start: string | null) {
   const quizRows = db
     .select({
       courseId: modules.courseId,
@@ -234,9 +295,12 @@ function getQuizStats(courseIds: number[]) {
     })
     .from(quizAttempts)
     .where(
-      inArray(
-        quizAttempts.quizId,
-        quizRows.map((q) => q.quizId)
+      and(
+        inArray(
+          quizAttempts.quizId,
+          quizRows.map((q) => q.quizId)
+        ),
+        since(quizAttempts.attemptedAt, start)
       )
     )
     .all();

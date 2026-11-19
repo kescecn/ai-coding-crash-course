@@ -1,7 +1,12 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/instructor";
 import { getCoursesByInstructor, getLessonCountForCourse } from "~/services/courseService";
-import { getInstructorAnalytics } from "~/services/instructorAnalyticsService";
+import {
+  ANALYTICS_RANGES,
+  getInstructorAnalytics,
+  parseRange,
+  type AnalyticsRange,
+} from "~/services/instructorAnalyticsService";
 import { formatPercent, formatEarnings } from "~/lib/utils";
 import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
@@ -40,7 +45,8 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const instructorCourses = getCoursesByInstructor(currentUserId);
 
-  const analytics = getInstructorAnalytics(currentUserId, "all");
+  const range = parseRange(new URL(request.url).searchParams.get("range"));
+  const analytics = getInstructorAnalytics(currentUserId, range);
   const analyticsByCourse = new Map(
     analytics.courses.map((c) => [c.courseId, c])
   );
@@ -68,6 +74,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   });
 
   return {
+    range,
     courses: coursesWithStats,
     totalStudents: analytics.totalStudents,
     totalEarnings: analytics.totalEarnings,
@@ -75,6 +82,13 @@ export async function loader({ request }: Route.LoaderArgs) {
     averageQuizScore: analytics.averageQuizScore,
   };
 }
+
+const RANGE_LABELS: Record<AnalyticsRange, string> = {
+  "7d": "7 days",
+  "30d": "30 days",
+  "12m": "12 months",
+  all: "All time",
+};
 
 function statusBadge(status: string) {
   switch (status) {
@@ -138,8 +152,14 @@ export function HydrateFallback() {
 export default function InstructorDashboard({
   loaderData,
 }: Route.ComponentProps) {
-  const { courses, totalStudents, totalEarnings, completionRate, averageQuizScore } =
-    loaderData;
+  const {
+    range,
+    courses,
+    totalStudents,
+    totalEarnings,
+    completionRate,
+    averageQuizScore,
+  } = loaderData;
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -166,6 +186,26 @@ export default function InstructorDashboard({
           </Button>
         </Link>
       </div>
+
+      {courses.length > 0 && (
+        <nav aria-label="Date range" className="mb-4 flex flex-wrap gap-2">
+          {ANALYTICS_RANGES.map((preset) => (
+            <Link
+              key={preset}
+              to={preset === "all" ? "." : `?range=${preset}`}
+              preventScrollReset
+              aria-current={preset === range ? "true" : undefined}
+            >
+              <Button
+                size="sm"
+                variant={preset === range ? "default" : "outline"}
+              >
+                {RANGE_LABELS[preset]}
+              </Button>
+            </Link>
+          ))}
+        </nav>
+      )}
 
       {courses.length > 0 && (
         <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

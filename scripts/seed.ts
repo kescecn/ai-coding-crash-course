@@ -232,7 +232,7 @@ By the end of this course, you'll understand why TypeScript has become the defau
       status: CourseStatus.Published,
       coverImageUrl: "/images/course-typescript.svg",
       price: 4999,
-      createdAt: daysAgo(90),
+      createdAt: daysAgo(450),
       updatedAt: daysAgo(10),
     })
     .returning()
@@ -1887,6 +1887,34 @@ Go beyond the basics with generics, conditional types, and mapped types.`,
     )
     .run();
 
+  // Spread across dates so every range preset shows a different figure:
+  // Olivia enrolled and bought this week; Bossy bought course 1 over a year
+  // ago, so it only appears under "all time".
+  db.insert(schema.enrollments)
+    .values([
+      { userId: students[2].id, courseId: course3.id, enrolledAt: daysAgo(5) },
+      { userId: bossy.id, courseId: course1.id, enrolledAt: daysAgo(400) },
+    ])
+    .run();
+  db.insert(schema.purchases)
+    .values([
+      {
+        userId: students[2].id,
+        courseId: course3.id,
+        pricePaid: 9900,
+        country: "US",
+        createdAt: daysAgo(5),
+      },
+      {
+        userId: bossy.id,
+        courseId: course1.id,
+        pricePaid: 4999,
+        country: "US",
+        createdAt: daysAgo(400),
+      },
+    ])
+    .run();
+
   // James bought with a PPP discount (India)
   db.insert(schema.purchases)
     .values({
@@ -1940,9 +1968,9 @@ Go beyond the basics with generics, conditional types, and mapped types.`,
     `  Courses: 3 (${course1LessonIds.length} + ${course2LessonIds.length} lessons, plus 1 without lessons)`
   );
   console.log("  Quizzes: 3");
-  console.log("  Enrollments: 10");
+  console.log("  Enrollments: 12");
   console.log("  Course ratings: 6");
-  console.log("  Purchases: 8 (6 individual + 2 team)");
+  console.log("  Purchases: 10 (8 individual + 2 team)");
   console.log("  Teams: 1 (with 8 coupons)");
 }
 

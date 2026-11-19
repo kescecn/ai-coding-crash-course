@@ -11,7 +11,7 @@ vi.mock("~/db", () => ({
   },
 }));
 
-import { getInstructorAnalytics } from "./instructorAnalyticsService";
+import { getInstructorAnalytics, parseRange } from "./instructorAnalyticsService";
 
 function addCourse(
   instructorId: number,
@@ -349,6 +349,117 @@ describe("getInstructorAnalytics", () => {
       expect(result.courses.map((c) => c.averageQuizScore)).toEqual([1, 0.7]);
       // (1 + 0.5 + 0.9) / 3, not the mean of 1 and 0.7
       expect(result.averageQuizScore).toBeCloseTo(0.8);
+    });
+  });
+
+  describe("date ranges", () => {
+    const now = new Date("2026-06-30T12:00:00.000Z");
+    const daysBefore = (n: number) =>
+      new Date(now.getTime() - n * 86_400_000).toISOString();
+
+    // Four students enrolled 3, 20, 100 and 400 days ago. Each paid, took the
+    // quiz and (apart from the 20-day student) finished the single lesson on
+    // the same day they enrolled — so every metric has a known, distinct value
+    // per preset.
+    beforeEach(() => {
+      const mod = testDb
+        .insert(schema.modules)
+        .values({ courseId: base.course.id, title: "M", position: 1 })
+        .returning()
+        .get();
+      const lesson = testDb
+        .insert(schema.lessons)
+        .values({ moduleId: mod.id, title: "L", position: 1 })
+        .returning()
+        .get();
+      const quiz = testDb
+        .insert(schema.quizzes)
+        .values({ lessonId: lesson.id, title: "Q", passingScore: 0.7 })
+        .returning()
+        .get();
+
+      [
+        { days: 3, paid: 1, score: 1, finished: true },
+        { days: 20, paid: 10, score: 0.5, finished: false },
+        { days: 100, paid: 100, score: 0.5, finished: true },
+        { days: 400, paid: 1000, score: 0.5, finished: true },
+      ].forEach(({ days, paid, score, finished }, i) => {
+        const student = addStudent(i + 1);
+        const when = daysBefore(days);
+        testDb
+          .insert(schema.enrollments)
+          .values({ userId: student.id, courseId: base.course.id, enrolledAt: when })
+          .run();
+        testDb
+          .insert(schema.purchases)
+          .values({
+            userId: student.id,
+            courseId: base.course.id,
+            pricePaid: paid,
+            country: "US",
+            createdAt: when,
+          })
+          .run();
+        testDb
+          .insert(schema.quizAttempts)
+          .values({
+            userId: student.id,
+            quizId: quiz.id,
+            score,
+            passed: score >= 0.7,
+            attemptedAt: when,
+          })
+          .run();
+        if (finished) {
+          testDb
+            .insert(schema.lessonProgress)
+            .values({
+              userId: student.id,
+              lessonId: lesson.id,
+              status: schema.LessonProgressStatus.Completed,
+            })
+            .run();
+        }
+      });
+    });
+
+    it.each([
+      // preset, students, earnings, completion, average quiz score
+      ["7d", 1, 1, 1, 1],
+      ["30d", 2, 11, 0.5, 0.75],
+      ["12m", 3, 111, 2 / 3, 2 / 3],
+      ["all", 4, 1111, 0.75, 0.625],
+    ] as const)("%s filters every metric", (range, students, earnings, completion, quizScore) => {
+      const result = getInstructorAnalytics(base.instructor.id, range, now);
+      expect(result.totalStudents).toBe(students);
+      expect(result.totalEarnings).toBe(earnings);
+      expect(result.completionRate).toBeCloseTo(completion);
+      expect(result.averageQuizScore).toBeCloseTo(quizScore);
+      // The summary and the course card always agree on the range.
+      expect(result.courses[0]).toMatchObject({ students, earnings });
+      expect(result.courses[0].completionRate).toBeCloseTo(completion);
+      expect(result.courses[0].averageQuizScore).toBeCloseTo(quizScore);
+    });
+
+    it("counts purchases and attempts by their own dates, not the enrollment date", () => {
+      // An old student buys and retakes the quiz inside the 7-day window.
+      const old = testDb.select().from(schema.users).all().find((u) => u.email === "s4@example.com")!;
+      testDb
+        .insert(schema.purchases)
+        .values({ userId: old.id, courseId: base.course.id, pricePaid: 5, country: "US", createdAt: daysBefore(1) })
+        .run();
+
+      const result = getInstructorAnalytics(base.instructor.id, "7d", now);
+      expect(result.totalEarnings).toBe(1 + 5);
+      expect(result.totalStudents).toBe(1); // enrollment cohort unchanged
+    });
+  });
+
+  describe("parseRange", () => {
+    it("accepts each preset and falls back to all time", () => {
+      expect(["7d", "30d", "12m", "all"].map(parseRange)).toEqual(["7d", "30d", "12m", "all"]);
+      expect(parseRange(null)).toBe("all");
+      expect(parseRange("bogus")).toBe("all");
     });
   });
 });
