@@ -2047,6 +2047,32 @@ You've completed the Building REST APIs course. You now have the skills to build
     `Created course "${course3.title}" with 2 purchases, 3 coupons (2 redeemed) and 4 enrollments.`
   );
 
+  // ─── Dates across the dashboard range presets ───
+  // The data above sits within ~60 days. Add a purchase, enrollment and quiz
+  // attempt from this week and from over a year ago so 7 days, 30 days,
+  // 12 months and all time each show different figures.
+
+  db.insert(schema.purchases)
+    .values([
+      { userId: students[3].id, courseId: course3.id, amountPaid: 7999, country: "US", createdAt: daysAgo(3) },
+      { userId: students[3].id, courseId: course1.id, amountPaid: 4999, country: "US", createdAt: daysAgo(400) },
+    ])
+    .run();
+  db.insert(schema.enrollments)
+    .values([
+      { userId: students[3].id, courseId: course3.id, enrolledAt: daysAgo(3) },
+      { userId: students[3].id, courseId: course1.id, enrolledAt: daysAgo(400) },
+    ])
+    .run();
+  db.insert(schema.quizAttempts)
+    .values([
+      { userId: students[3].id, quizId: c3Quizzes[0].id, score: 1, passed: true, attemptedAt: daysAgo(3) },
+      { userId: students[3].id, quizId: c3Quizzes[0].id, score: 0.4, passed: false, attemptedAt: daysAgo(400) },
+    ])
+    .run();
+
+  console.log("Created purchases, enrollments and attempts outside the 60-day window.");
+
   console.log("\n✓ Seed complete!");
   console.log("  Users: 9 (1 admin, 2 instructors, 6 students)");
   console.log("  Categories: 5");

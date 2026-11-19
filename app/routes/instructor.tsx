@@ -1,6 +1,10 @@
-import { Link } from "react-router";
+import { Form, Link, useSubmit } from "react-router";
 import type { Route } from "./+types/instructor";
-import { getInstructorAnalytics } from "~/services/instructorAnalyticsService";
+import {
+  getInstructorAnalytics,
+  parseRangePreset,
+  type RangePreset,
+} from "~/services/instructorAnalyticsService";
 import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
@@ -16,6 +20,37 @@ import {
   QuizPerformanceTable,
   formatPercent,
 } from "~/components/quiz-performance-table";
+
+const RANGE_LABELS: Record<RangePreset, string> = {
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  "12m": "Last 12 months",
+  all: "All time",
+};
+
+function RangeSelector({ range }: { range: RangePreset }) {
+  const submit = useSubmit();
+  return (
+    <Form method="get" className="mb-4 flex items-center justify-end gap-2">
+      <label htmlFor="range" className="text-sm text-muted-foreground">
+        Date range
+      </label>
+      <select
+        id="range"
+        name="range"
+        value={range}
+        onChange={(e) => submit(e.currentTarget.form)}
+        className="rounded-md border bg-background px-3 py-2 text-sm"
+      >
+        {(Object.keys(RANGE_LABELS) as RangePreset[]).map((preset) => (
+          <option key={preset} value={preset}>
+            {RANGE_LABELS[preset]}
+          </option>
+        ))}
+      </select>
+    </Form>
+  );
+}
 
 function formatCompletionRate(rate: number | null) {
   return rate === null ? "No data yet" : `${Math.round(rate * 100)}%`;
@@ -45,9 +80,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     });
   }
 
-  const analytics = getInstructorAnalytics(currentUserId);
+  const range = parseRangePreset(new URL(request.url).searchParams.get("range"));
+  const analytics = getInstructorAnalytics(currentUserId, range);
 
-  return { summary: analytics.summary, courses: analytics.courses };
+  return { range, summary: analytics.summary, courses: analytics.courses };
 }
 
 function statusBadge(status: string) {
@@ -112,7 +148,7 @@ export function HydrateFallback() {
 export default function InstructorDashboard({
   loaderData,
 }: Route.ComponentProps) {
-  const { summary, courses } = loaderData;
+  const { range, summary, courses } = loaderData;
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -156,6 +192,7 @@ export default function InstructorDashboard({
         </div>
       ) : (
         <>
+        <RangeSelector range={range} />
         <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardContent className="flex items-center gap-3">

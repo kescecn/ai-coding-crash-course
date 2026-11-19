@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { db } from "~/db";
 import {
   courses,
@@ -18,14 +18,48 @@ import {
 
 export type RangePreset = "7d" | "30d" | "12m" | "all";
 
+export const RANGE_PRESETS: RangePreset[] = ["7d", "30d", "12m", "all"];
+
+// Parses a URL search param; anything unrecognised falls back to all time.
+export function parseRangePreset(value: string | null | undefined): RangePreset {
+  return RANGE_PRESETS.find((p) => p === value) ?? "all";
+}
+
+// ISO start of the window relative to `now`, or null for all time.
+export function getRangeStart(range: RangePreset, now: Date): string | null {
+  const start = new Date(now);
+  switch (range) {
+    case "7d":
+      start.setUTCDate(start.getUTCDate() - 7);
+      return start.toISOString();
+    case "30d":
+      start.setUTCDate(start.getUTCDate() - 30);
+      return start.toISOString();
+    case "12m":
+      start.setUTCFullYear(start.getUTCFullYear() - 1);
+      return start.toISOString();
+    case "all":
+      return null;
+  }
+}
+
 // Completion: a student is complete in a course when they have completed
 // every lesson. Rate = complete students / enrolled students; null when the
 // course has no students or no lessons. The pooled rate sums across courses.
-function getCompletionStats(courseIds: number[], lessonCounts: Map<number, number>) {
+function getCompletionStats(
+  courseIds: number[],
+  lessonCounts: Map<number, number>,
+  since: string | null
+) {
   const enrolled = db
     .selectDistinct({ courseId: enrollments.courseId, userId: enrollments.userId })
     .from(enrollments)
-    .where(inArray(enrollments.courseId, courseIds))
+    .where(
+      and(
+        inArray(enrollments.courseId, courseIds),
+        since ? gte(enrollments.enrolledAt, since) : undefined
+      )
+    )
     .all();
 
   const completedRows = db
@@ -91,7 +125,7 @@ const average = (xs: number[]) =>
 
 // Per-quiz rows by course, plus course and overall averages. Scores are
 // fractions (0–1) of each student's best attempt per quiz.
-function getQuizPerformance(courseIds: number[]) {
+function getQuizPerformance(courseIds: number[], since: string | null) {
   const quizRows = db
     .select({
       courseId: modules.courseId,
@@ -113,9 +147,12 @@ function getQuizPerformance(courseIds: number[]) {
     })
     .from(quizAttempts)
     .where(
-      inArray(
-        quizAttempts.quizId,
-        quizRows.map((q) => q.quizId)
+      and(
+        inArray(
+          quizAttempts.quizId,
+          quizRows.map((q) => q.quizId)
+        ),
+        since ? gte(quizAttempts.attemptedAt, since) : undefined
       )
     )
     .groupBy(quizAttempts.quizId, quizAttempts.userId)
@@ -155,9 +192,10 @@ function getQuizPerformance(courseIds: number[]) {
 
 export function getInstructorAnalytics(
   instructorId: number,
-  _range: RangePreset = "all",
-  _now: Date = new Date()
+  range: RangePreset = "all",
+  now: Date = new Date()
 ) {
+  const since = getRangeStart(range, now);
   const instructorCourses = db
     .select({
       id: courses.id,
@@ -191,7 +229,12 @@ export function getInstructorAnalytics(
       students: sql<number>`count(distinct ${enrollments.userId})`,
     })
     .from(enrollments)
-    .where(inArray(enrollments.courseId, courseIds))
+    .where(
+      and(
+        inArray(enrollments.courseId, courseIds),
+        since ? gte(enrollments.enrolledAt, since) : undefined
+      )
+    )
     .groupBy(enrollments.courseId)
     .all();
 
@@ -201,7 +244,12 @@ export function getInstructorAnalytics(
       earnings: sql<number>`sum(${purchases.amountPaid})`,
     })
     .from(purchases)
-    .where(inArray(purchases.courseId, courseIds))
+    .where(
+      and(
+        inArray(purchases.courseId, courseIds),
+        since ? gte(purchases.createdAt, since) : undefined
+      )
+    )
     .groupBy(purchases.courseId)
     .all();
 
@@ -221,15 +269,20 @@ export function getInstructorAnalytics(
       students: sql<number>`count(distinct ${enrollments.userId})`,
     })
     .from(enrollments)
-    .where(inArray(enrollments.courseId, courseIds))
+    .where(
+      and(
+        inArray(enrollments.courseId, courseIds),
+        since ? gte(enrollments.enrolledAt, since) : undefined
+      )
+    )
     .get();
 
   const studentsByCourse = new Map(studentRows.map((r) => [r.courseId, r.students]));
   const lessonsByCourse = new Map(lessonRows.map((r) => [r.courseId, r.lessons]));
   const earningsByCourse = new Map(earningsRows.map((r) => [r.courseId, r.earnings]));
 
-  const completion = getCompletionStats(courseIds, lessonsByCourse);
-  const quizPerformance = getQuizPerformance(courseIds);
+  const completion = getCompletionStats(courseIds, lessonsByCourse, since);
+  const quizPerformance = getQuizPerformance(courseIds, since);
 
   const courseEntries = instructorCourses.map((course) => ({
     ...course,
