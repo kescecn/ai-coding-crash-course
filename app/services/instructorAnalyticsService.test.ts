@@ -148,14 +148,14 @@ describe("getInstructorAnalytics", () => {
     const result = getInstructorAnalytics(base.instructor.id);
 
     expect(result.courses.map((c) => c.id)).toEqual([base.course.id]);
-    expect(result.summary).toEqual({ students: 0, earnings: 0, completionRate: null });
+    expect(result.summary).toEqual({ students: 0, earnings: 0, completionRate: null, avgQuizScore: null });
   });
 
   it("returns an empty result for an instructor with no courses", () => {
     const result = getInstructorAnalytics(base.user.id);
 
     expect(result.courses).toEqual([]);
-    expect(result.summary).toEqual({ students: 0, earnings: 0, completionRate: null });
+    expect(result.summary).toEqual({ students: 0, earnings: 0, completionRate: null, avgQuizScore: null });
   });
 
   describe("completion rate", () => {
@@ -245,6 +245,73 @@ describe("getInstructorAnalytics", () => {
       expect(byId.get(noStudents.id)!.completionRate).toBeNull();
       expect(byId.get(noLessons.id)!.completionRate).toBeNull();
       expect(result.summary.completionRate).toBeNull();
+    });
+  });
+
+  describe("quiz performance", () => {
+    function addQuiz(courseId: number, title: string, passingScore = 0.7) {
+      const mod = testDb
+        .insert(schema.modules)
+        .values({ courseId, title: `m-${title}`, position: 1 })
+        .returning()
+        .get();
+      const lesson = testDb
+        .insert(schema.lessons)
+        .values({ moduleId: mod.id, title: `l-${title}`, position: 1 })
+        .returning()
+        .get();
+      return testDb
+        .insert(schema.quizzes)
+        .values({ lessonId: lesson.id, title, passingScore })
+        .returning()
+        .get();
+    }
+
+    function attempt(userId: number, quizId: number, score: number, passed: boolean) {
+      testDb
+        .insert(schema.quizAttempts)
+        .values({ userId, quizId, score, passed })
+        .run();
+    }
+
+    it("uses each student's best attempt so a retake doesn't drag the average down", () => {
+      const quiz = addQuiz(base.course.id, "Quiz A");
+      const other = addStudent("o@x.com");
+      attempt(base.user.id, quiz.id, 0.4, false);
+      attempt(base.user.id, quiz.id, 0.9, true);
+      attempt(other.id, quiz.id, 0.5, false);
+
+      const course = getInstructorAnalytics(base.instructor.id).courses[0];
+
+      expect(course.quizzes).toEqual([
+        { quizId: quiz.id, title: "Quiz A", students: 2, avgScore: 0.7, passRate: 0.5 },
+      ]);
+      expect(course.avgQuizScore).toBeCloseTo(0.7);
+    });
+
+    it("reports a quiz with no attempts with null figures", () => {
+      const quiz = addQuiz(base.course.id, "Empty");
+
+      const result = getInstructorAnalytics(base.instructor.id);
+
+      expect(result.courses[0].quizzes).toEqual([
+        { quizId: quiz.id, title: "Empty", students: 0, avgScore: null, passRate: null },
+      ]);
+      expect(result.courses[0].avgQuizScore).toBeNull();
+      expect(result.summary.avgQuizScore).toBeNull();
+    });
+
+    it("computes the overall average across all courses' best attempts", () => {
+      const c2 = addCourse(base.instructor.id, "second");
+      const q1 = addQuiz(base.course.id, "Q1");
+      const q2 = addQuiz(c2.id, "Q2");
+      attempt(base.user.id, q1.id, 1, true);
+      attempt(base.user.id, q2.id, 0.5, false);
+
+      const result = getInstructorAnalytics(base.instructor.id);
+
+      expect(result.summary.avgQuizScore).toBeCloseTo(0.75);
+      expect(result.courses.find((c) => c.id === c2.id)!.avgQuizScore).toBeCloseTo(0.5);
     });
   });
 });

@@ -11,7 +11,11 @@ import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
 import { CourseStatus, UserRole } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
-import { CheckCircle2, DollarSign } from "lucide-react";
+import { CheckCircle2, ClipboardCheck, DollarSign } from "lucide-react";
+import {
+  QuizPerformanceTable,
+  formatPercent,
+} from "~/components/quiz-performance-table";
 
 function formatCompletionRate(rate: number | null) {
   return rate === null ? "No data yet" : `${Math.round(rate * 100)}%`;
@@ -152,7 +156,7 @@ export default function InstructorDashboard({
         </div>
       ) : (
         <>
-        <div className="mb-8 grid gap-4 sm:grid-cols-3">
+        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Card>
             <CardContent className="flex items-center gap-3">
               <Users className="size-5 text-muted-foreground" />
@@ -180,6 +184,17 @@ export default function InstructorDashboard({
                 <p className="text-sm text-muted-foreground">Completion rate</p>
                 <p className="text-2xl font-bold">
                   {formatCompletionRate(summary.completionRate)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-3">
+              <ClipboardCheck className="size-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Avg quiz score</p>
+                <p className="text-2xl font-bold">
+                  {formatPercent(summary.avgQuizScore)}
                 </p>
               </div>
             </CardContent>
@@ -234,6 +249,11 @@ export default function InstructorDashboard({
                     <span>{formatCompletionRate(course.completionRate)}</span>
                   </div>
                 </div>
+                <div className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <ClipboardCheck className="size-4" />
+                  <span>Avg quiz score: {formatPercent(course.avgQuizScore)}</span>
+                </div>
+                <QuizPerformanceTable quizzes={course.quizzes} />
               </CardContent>
               <CardFooter>
                 <Link to={`/instructor/${course.id}`} className="w-full">

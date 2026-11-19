@@ -1955,10 +1955,32 @@ You've completed the Building REST APIs course. You now have the skills to build
     .returning()
     .all();
 
-  db.insert(schema.lessons)
+  const c3Lessons = db
+    .insert(schema.lessons)
     .values([
       { moduleId: c3Module.id, title: "Mapped types", position: 1 },
       { moduleId: c3Module.id, title: "Conditional types", position: 2 },
+    ])
+    .returning()
+    .all();
+
+  // Quizzes for course 3: one with attempts (including a fail-then-pass
+  // retake) and one with no attempts, so the dashboard shows "No data yet".
+  const c3Quizzes = db
+    .insert(schema.quizzes)
+    .values([
+      { lessonId: c3Lessons[0].id, title: "Mapped Types Quiz", passingScore: 0.7 },
+      { lessonId: c3Lessons[1].id, title: "Conditional Types Quiz", passingScore: 0.7 },
+    ])
+    .returning()
+    .all();
+
+  db.insert(schema.quizAttempts)
+    .values([
+      // James fails, then passes on a retake.
+      { userId: students[1].id, quizId: c3Quizzes[0].id, score: 0.5, passed: false, attemptedAt: daysAgo(18) },
+      { userId: students[1].id, quizId: c3Quizzes[0].id, score: 0.9, passed: true, attemptedAt: daysAgo(17) },
+      { userId: students[2].id, quizId: c3Quizzes[0].id, score: 0.6, passed: false, attemptedAt: daysAgo(7) },
     ])
     .run();
 
@@ -2031,7 +2053,7 @@ You've completed the Building REST APIs course. You now have the skills to build
   console.log(
     `  Courses: 3 (${course1LessonIds.length} + ${course2LessonIds.length} lessons)`
   );
-  console.log("  Quizzes: 3");
+  console.log("  Quizzes: 5");
   console.log("  Enrollments: 11");
   console.log("  Course ratings: 6");
   console.log("  Lesson comments: 15 (4 questions awaiting an answer)");
