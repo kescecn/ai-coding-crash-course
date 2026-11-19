@@ -1400,10 +1400,16 @@ You've completed the Building REST APIs course. You now have the skills to build
       { userId: students[2].id, courseId: course2.id, enrolledAt: daysAgo(30) },
       { userId: students[3].id, courseId: course2.id, enrolledAt: daysAgo(25) },
       { userId: students[4].id, courseId: course1.id, enrolledAt: daysAgo(15) },
+      {
+        userId: students[4].id,
+        courseId: course2.id,
+        enrolledAt: daysAgo(20),
+        completedAt: daysAgo(2),
+      },
     ])
     .run();
 
-  console.log("Created 7 enrollments.");
+  console.log("Created 8 enrollments.");
 
   // ─── Course Ratings ───
   // Star ratings from enrolled students only. Not everyone rates.
@@ -1653,6 +1659,11 @@ You've completed the Building REST APIs course. You now have the skills to build
   // Sophia (students[4]) — barely started course 1 (1 lesson done)
   markComplete(students[4].id, course1LessonIds[0], 12);
   markInProgress(students[4].id, course1LessonIds[1]);
+
+  // Sophia — also finished every lesson of course 2 (the fully completed student)
+  for (let i = 0; i < course2LessonIds.length; i++) {
+    markComplete(students[4].id, course2LessonIds[i], 19 - Math.floor(i / 2));
+  }
 
   console.log("Created lesson progress records.");
 
@@ -1913,17 +1924,166 @@ You've completed the Building REST APIs course. You now have the skills to build
     `Created 1 team with Bossy McBossface as admin, 1 team purchase, and ${seededCoupons.length} coupons (2 redeemed, 3 available).`
   );
 
+  // ─── Course 3: Advanced TypeScript Patterns (Sarah Chen) ───
+  // A second course for the demo instructor so the dashboard analytics show
+  // variety: a regional-price purchase, a team purchase, seat redemptions
+  // (enrollments with no purchase of their own) and a duplicate enrollment.
+
+  const [course3] = db
+    .insert(schema.courses)
+    .values({
+      title: "Advanced TypeScript Patterns",
+      slug: "advanced-typescript-patterns",
+      description:
+        "Go beyond the basics with mapped types, conditional types, and type-safe API design patterns.",
+      salesCopy:
+        "## Level up your types\n\nA short, focused course on the patterns that make large TypeScript codebases maintainable.",
+      instructorId: instructor1.id,
+      categoryId: catBySlug["programming"].id,
+      status: CourseStatus.Published,
+      coverImageUrl: "/images/course-typescript.svg",
+      price: 7999,
+      createdAt: daysAgo(60),
+      updatedAt: daysAgo(3),
+    })
+    .returning()
+    .all();
+
+  const [c3Module] = db
+    .insert(schema.modules)
+    .values({ courseId: course3.id, title: "Type-level programming", position: 1 })
+    .returning()
+    .all();
+
+  const c3Lessons = db
+    .insert(schema.lessons)
+    .values([
+      { moduleId: c3Module.id, title: "Mapped types", position: 1 },
+      { moduleId: c3Module.id, title: "Conditional types", position: 2 },
+    ])
+    .returning()
+    .all();
+
+  // Quizzes for course 3: one with attempts (including a fail-then-pass
+  // retake) and one with no attempts, so the dashboard shows "No data yet".
+  const c3Quizzes = db
+    .insert(schema.quizzes)
+    .values([
+      { lessonId: c3Lessons[0].id, title: "Mapped Types Quiz", passingScore: 0.7 },
+      { lessonId: c3Lessons[1].id, title: "Conditional Types Quiz", passingScore: 0.7 },
+    ])
+    .returning()
+    .all();
+
+  db.insert(schema.quizAttempts)
+    .values([
+      // James fails, then passes on a retake.
+      { userId: students[1].id, quizId: c3Quizzes[0].id, score: 0.5, passed: false, attemptedAt: daysAgo(18) },
+      { userId: students[1].id, quizId: c3Quizzes[0].id, score: 0.9, passed: true, attemptedAt: daysAgo(17) },
+      { userId: students[2].id, quizId: c3Quizzes[0].id, score: 0.6, passed: false, attemptedAt: daysAgo(7) },
+    ])
+    .run();
+
+  // James paid a regional (India) price; Bossy bought 3 team seats at full
+  // price; Olivia and Sophia joined through seats.
+  db.insert(schema.purchases)
+    .values({
+      userId: students[1].id,
+      courseId: course3.id,
+      amountPaid: 3999,
+      country: "IN",
+      createdAt: daysAgo(20),
+    })
+    .run();
+
+  const [teamPurchase3] = db
+    .insert(schema.purchases)
+    .values({
+      userId: bossy.id,
+      courseId: course3.id,
+      amountPaid: 7999 * 3,
+      country: "US",
+      createdAt: daysAgo(12),
+    })
+    .returning()
+    .all();
+
+  const course3Coupons = db
+    .insert(schema.coupons)
+    .values(
+      ["TEAM-ADVTS-A1B2C3", "TEAM-ADVTS-D4E5F6", "TEAM-ADVTS-G7H8I9"].map(
+        (code) => ({
+          teamId: team1.id,
+          courseId: course3.id,
+          code,
+          purchaseId: teamPurchase3.id,
+          createdAt: daysAgo(12),
+        })
+      )
+    )
+    .returning()
+    .all();
+
+  db.update(schema.coupons)
+    .set({ redeemedByUserId: students[2].id, redeemedAt: daysAgo(10) })
+    .where(eq(schema.coupons.id, course3Coupons[0].id))
+    .run();
+  db.update(schema.coupons)
+    .set({ redeemedByUserId: students[4].id, redeemedAt: daysAgo(8) })
+    .where(eq(schema.coupons.id, course3Coupons[1].id))
+    .run();
+
+  db.insert(schema.enrollments)
+    .values([
+      { userId: students[1].id, courseId: course3.id, enrolledAt: daysAgo(20) },
+      // Duplicate enrollment record: must not inflate the student count.
+      { userId: students[1].id, courseId: course3.id, enrolledAt: daysAgo(19) },
+      { userId: students[2].id, courseId: course3.id, enrolledAt: daysAgo(10) },
+      { userId: students[4].id, courseId: course3.id, enrolledAt: daysAgo(8) },
+    ])
+    .run();
+
+  console.log(
+    `Created course "${course3.title}" with 2 purchases, 3 coupons (2 redeemed) and 4 enrollments.`
+  );
+
+  // ─── Dates across the dashboard range presets ───
+  // The data above sits within ~60 days. Add a purchase, enrollment and quiz
+  // attempt from this week and from over a year ago so 7 days, 30 days,
+  // 12 months and all time each show different figures.
+
+  db.insert(schema.purchases)
+    .values([
+      { userId: students[3].id, courseId: course3.id, amountPaid: 7999, country: "US", createdAt: daysAgo(3) },
+      { userId: students[3].id, courseId: course1.id, amountPaid: 4999, country: "US", createdAt: daysAgo(400) },
+    ])
+    .run();
+  db.insert(schema.enrollments)
+    .values([
+      { userId: students[3].id, courseId: course3.id, enrolledAt: daysAgo(3) },
+      { userId: students[3].id, courseId: course1.id, enrolledAt: daysAgo(400) },
+    ])
+    .run();
+  db.insert(schema.quizAttempts)
+    .values([
+      { userId: students[3].id, quizId: c3Quizzes[0].id, score: 1, passed: true, attemptedAt: daysAgo(3) },
+      { userId: students[3].id, quizId: c3Quizzes[0].id, score: 0.4, passed: false, attemptedAt: daysAgo(400) },
+    ])
+    .run();
+
+  console.log("Created purchases, enrollments and attempts outside the 60-day window.");
+
   console.log("\n✓ Seed complete!");
   console.log("  Users: 9 (1 admin, 2 instructors, 6 students)");
   console.log("  Categories: 5");
   console.log(
-    `  Courses: 2 (${course1LessonIds.length} + ${course2LessonIds.length} lessons)`
+    `  Courses: 3 (${course1LessonIds.length} + ${course2LessonIds.length} lessons)`
   );
-  console.log("  Quizzes: 3");
-  console.log("  Enrollments: 7");
+  console.log("  Quizzes: 5");
+  console.log("  Enrollments: 11");
   console.log("  Course ratings: 6");
   console.log("  Lesson comments: 15 (4 questions awaiting an answer)");
-  console.log("  Purchases: 6 (5 individual + 1 team)");
+  console.log("  Purchases: 8 (6 individual + 2 team)");
   console.log("  Teams: 1 (with 5 coupons)");
 }
 

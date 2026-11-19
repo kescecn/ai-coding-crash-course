@@ -1,7 +1,10 @@
-import { Link } from "react-router";
+import { Form, Link, useSubmit } from "react-router";
 import type { Route } from "./+types/instructor";
-import { getCoursesByInstructor, getLessonCountForCourse } from "~/services/courseService";
-import { getEnrollmentCountForCourse } from "~/services/enrollmentService";
+import {
+  getInstructorAnalytics,
+  parseRangePreset,
+  type RangePreset,
+} from "~/services/instructorAnalyticsService";
 import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
@@ -11,6 +14,47 @@ import { AlertTriangle, BookOpen, GraduationCap, Plus, Users } from "lucide-reac
 import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
 import { CourseStatus, UserRole } from "~/db/schema";
+import { formatPrice } from "~/lib/utils";
+import { CheckCircle2, ClipboardCheck, DollarSign } from "lucide-react";
+import {
+  QuizPerformanceTable,
+  formatPercent,
+} from "~/components/quiz-performance-table";
+
+const RANGE_LABELS: Record<RangePreset, string> = {
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  "12m": "Last 12 months",
+  all: "All time",
+};
+
+function RangeSelector({ range }: { range: RangePreset }) {
+  const submit = useSubmit();
+  return (
+    <Form method="get" className="mb-4 flex items-center justify-end gap-2">
+      <label htmlFor="range" className="text-sm text-muted-foreground">
+        Date range
+      </label>
+      <select
+        id="range"
+        name="range"
+        value={range}
+        onChange={(e) => submit(e.currentTarget.form)}
+        className="rounded-md border bg-background px-3 py-2 text-sm"
+      >
+        {(Object.keys(RANGE_LABELS) as RangePreset[]).map((preset) => (
+          <option key={preset} value={preset}>
+            {RANGE_LABELS[preset]}
+          </option>
+        ))}
+      </select>
+    </Form>
+  );
+}
+
+function formatCompletionRate(rate: number | null) {
+  return rate === null ? "No data yet" : `${Math.round(rate * 100)}%`;
+}
 
 export function meta() {
   return [
@@ -36,27 +80,10 @@ export async function loader({ request }: Route.LoaderArgs) {
     });
   }
 
-  const instructorCourses = getCoursesByInstructor(currentUserId);
+  const range = parseRangePreset(new URL(request.url).searchParams.get("range"));
+  const analytics = getInstructorAnalytics(currentUserId, range);
 
-  const coursesWithStats = instructorCourses.map((course) => {
-    const lessonCount = getLessonCountForCourse(course.id);
-    const enrollmentCount = getEnrollmentCountForCourse(course.id);
-
-    return {
-      id: course.id,
-      title: course.title,
-      slug: course.slug,
-      description: course.description,
-      status: course.status,
-      coverImageUrl: course.coverImageUrl,
-      lessonCount,
-      enrollmentCount,
-      createdAt: course.createdAt,
-      updatedAt: course.updatedAt,
-    };
-  });
-
-  return { courses: coursesWithStats };
+  return { range, summary: analytics.summary, courses: analytics.courses };
 }
 
 function statusBadge(status: string) {
@@ -121,7 +148,7 @@ export function HydrateFallback() {
 export default function InstructorDashboard({
   loaderData,
 }: Route.ComponentProps) {
-  const { courses } = loaderData;
+  const { range, summary, courses } = loaderData;
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -164,6 +191,52 @@ export default function InstructorDashboard({
           </Link>
         </div>
       ) : (
+        <>
+        <RangeSelector range={range} />
+        <div className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardContent className="flex items-center gap-3">
+              <Users className="size-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Students</p>
+                <p className="text-2xl font-bold">{summary.students}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-3">
+              <DollarSign className="size-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Earnings</p>
+                <p className="text-2xl font-bold">
+                  {formatPrice(summary.earnings)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-3">
+              <CheckCircle2 className="size-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Completion rate</p>
+                <p className="text-2xl font-bold">
+                  {formatCompletionRate(summary.completionRate)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-3">
+              <ClipboardCheck className="size-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Avg quiz score</p>
+                <p className="text-2xl font-bold">
+                  {formatPercent(summary.avgQuizScore)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {courses.map((course) => (
             <Card key={course.id} className="flex flex-col overflow-hidden pt-0">
@@ -200,11 +273,24 @@ export default function InstructorDashboard({
                   <div className="flex items-center gap-1.5">
                     <Users className="size-4" />
                     <span>
-                      {course.enrollmentCount}{" "}
-                      {course.enrollmentCount === 1 ? "student" : "students"}
+                      {course.students}{" "}
+                      {course.students === 1 ? "student" : "students"}
                     </span>
                   </div>
+                  <div className="flex items-center gap-1.5">
+                    <DollarSign className="size-4" />
+                    <span>{formatPrice(course.earnings)}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <CheckCircle2 className="size-4" />
+                    <span>{formatCompletionRate(course.completionRate)}</span>
+                  </div>
                 </div>
+                <div className="mt-3 flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <ClipboardCheck className="size-4" />
+                  <span>Avg quiz score: {formatPercent(course.avgQuizScore)}</span>
+                </div>
+                <QuizPerformanceTable quizzes={course.quizzes} />
               </CardContent>
               <CardFooter>
                 <Link to={`/instructor/${course.id}`} className="w-full">
@@ -217,6 +303,7 @@ export default function InstructorDashboard({
             </Card>
           ))}
         </div>
+        </>
       )}
     </div>
   );
