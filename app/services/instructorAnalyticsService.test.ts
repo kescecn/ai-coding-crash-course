@@ -11,7 +11,7 @@ vi.mock("~/db", () => ({
   },
 }));
 
-import { getInstructorAnalytics } from "./instructorAnalyticsService";
+import { getInstructorAnalytics, parseRangePreset } from "./instructorAnalyticsService";
 
 function addStudent(email: string) {
   return testDb
@@ -41,14 +41,22 @@ function addCourse(
     .get();
 }
 
-function enroll(userId: number, courseId: number) {
-  testDb.insert(schema.enrollments).values({ userId, courseId }).run();
+function enroll(userId: number, courseId: number, enrolledAt?: string) {
+  testDb
+    .insert(schema.enrollments)
+    .values({ userId, courseId, enrolledAt })
+    .run();
 }
 
-function purchase(userId: number, courseId: number, amountPaid: number) {
+function purchase(
+  userId: number,
+  courseId: number,
+  amountPaid: number,
+  createdAt?: string
+) {
   testDb
     .insert(schema.purchases)
-    .values({ userId, courseId, amountPaid })
+    .values({ userId, courseId, amountPaid, createdAt })
     .run();
 }
 
@@ -314,4 +322,183 @@ describe("getInstructorAnalytics", () => {
       expect(result.courses.find((c) => c.id === c2.id)!.avgQuizScore).toBeCloseTo(0.5);
     });
   });
+});
+
+describe("date range presets", () => {
+  const NOW = new Date("2026-06-15T12:00:00.000Z");
+  const daysAgo = (n: number) =>
+    new Date(NOW.getTime() - n * 86_400_000).toISOString();
+
+  beforeEach(() => {
+    testDb = createTestDb();
+    base = seedBaseData(testDb);
+  });
+
+  describe("earnings (by purchase date)", () => {
+    beforeEach(() => {
+      purchase(base.user.id, base.course.id, 100, daysAgo(3));
+      purchase(base.user.id, base.course.id, 200, daysAgo(20));
+      purchase(base.user.id, base.course.id, 400, daysAgo(200));
+      purchase(base.user.id, base.course.id, 800, daysAgo(500));
+    });
+
+    it.each([
+      ["7d", 100],
+      ["30d", 300],
+      ["12m", 700],
+      ["all", 1500],
+    ] as const)("%s sums only purchases inside the window", (range, expected) => {
+      const result = getInstructorAnalytics(base.instructor.id, range, NOW);
+
+      expect(result.summary.earnings).toBe(expected);
+      expect(result.courses[0].earnings).toBe(expected);
+    });
+
+    it("defaults to all time", () => {
+      expect(getInstructorAnalytics(base.instructor.id).summary.earnings).toBe(1500);
+    });
+  });
+
+  describe("students and completion (enrolment cohort)", () => {
+    beforeEach(() => {
+      const lesson = (() => {
+        const mod = testDb
+          .insert(schema.modules)
+          .values({ courseId: base.course.id, title: "m", position: 1 })
+          .returning()
+          .get();
+        return testDb
+          .insert(schema.lessons)
+          .values({ moduleId: mod.id, title: "l", position: 1 })
+          .returning()
+          .get();
+      })();
+      // [days since enrolling, finished the only lesson]
+      const cohort: [number, boolean][] = [
+        [3, true],
+        [20, false],
+        [200, true],
+        [500, false],
+      ];
+      cohort.forEach(([days, done], i) => {
+        const u = addStudent(`c${i}@x.com`);
+        enroll(u.id, base.course.id, daysAgo(days));
+        if (done) {
+          testDb
+            .insert(schema.lessonProgress)
+            .values({
+              userId: u.id,
+              lessonId: lesson.id,
+              status: schema.LessonProgressStatus.Completed,
+              completedAt: daysAgo(1),
+            })
+            .run();
+        }
+      });
+    });
+
+    it.each([
+      ["7d", 1, 1],
+      ["30d", 2, 0.5],
+      ["12m", 3, 2 / 3],
+      ["all", 4, 0.5],
+    ] as const)("%s counts only students who enrolled in the window", (range, students, rate) => {
+      const result = getInstructorAnalytics(base.instructor.id, range, NOW);
+
+      expect(result.summary.students).toBe(students);
+      expect(result.courses[0].students).toBe(students);
+      expect(result.summary.completionRate).toBeCloseTo(rate);
+      expect(result.courses[0].completionRate).toBeCloseTo(rate);
+    });
+
+    it("has no completion rate when nobody enrolled in the window", () => {
+      testDb.delete(schema.lessonProgress).run();
+      testDb.delete(schema.enrollments).run();
+      enroll(base.user.id, base.course.id, daysAgo(400));
+
+      const result = getInstructorAnalytics(base.instructor.id, "7d", NOW);
+
+      expect(result.summary.students).toBe(0);
+      expect(result.summary.completionRate).toBeNull();
+    });
+  });
+
+  describe("quiz scores (by attempt date)", () => {
+    beforeEach(() => {
+      const mod = testDb
+        .insert(schema.modules)
+        .values({ courseId: base.course.id, title: "m", position: 1 })
+        .returning()
+        .get();
+      const lesson = testDb
+        .insert(schema.lessons)
+        .values({ moduleId: mod.id, title: "l", position: 1 })
+        .returning()
+        .get();
+      const quiz = testDb
+        .insert(schema.quizzes)
+        .values({ lessonId: lesson.id, title: "q", passingScore: 0.7 })
+        .returning()
+        .get();
+      const attempt = (days: number, score: number) => {
+        const u = addStudent(`q${days}@x.com`);
+        testDb
+          .insert(schema.quizAttempts)
+          .values({
+            userId: u.id,
+            quizId: quiz.id,
+            score,
+            passed: score >= 0.7,
+            attemptedAt: daysAgo(days),
+          })
+          .run();
+      };
+      attempt(3, 1);
+      attempt(20, 0.5);
+      attempt(200, 0.9);
+      attempt(500, 0.1);
+    });
+
+    it.each([
+      ["7d", 1, 1],
+      ["30d", 2, 0.75],
+      ["12m", 3, 2.4 / 3],
+      ["all", 4, 2.5 / 4],
+    ] as const)("%s averages only attempts made in the window", (range, students, avg) => {
+      const result = getInstructorAnalytics(base.instructor.id, range, NOW);
+
+      expect(result.summary.avgQuizScore).toBeCloseTo(avg);
+      expect(result.courses[0].avgQuizScore).toBeCloseTo(avg);
+      expect(result.courses[0].quizzes[0].students).toBe(students);
+    });
+
+    it("counts a student's best attempt inside the window only", () => {
+      const u = addStudent("retake@x.com");
+      const quizId = testDb.select().from(schema.quizzes).get()!.id;
+      testDb
+        .insert(schema.quizAttempts)
+        .values([
+          { userId: u.id, quizId, score: 0.95, passed: true, attemptedAt: daysAgo(100) },
+          { userId: u.id, quizId, score: 0.2, passed: false, attemptedAt: daysAgo(2) },
+        ])
+        .run();
+
+      const result = getInstructorAnalytics(base.instructor.id, "7d", NOW);
+
+      expect(result.summary.avgQuizScore).toBeCloseTo(0.6);
+    });
+  });
+});
+
+describe("parseRangePreset", () => {
+  it.each(["7d", "30d", "12m", "all"])("accepts %s", (v) => {
+    expect(parseRangePreset(v)).toBe(v);
+  });
+
+  it.each([null, undefined, "", "90d", "ALL", "7d;drop"])(
+    "falls back to all time for %s",
+    (v) => {
+      expect(parseRangePreset(v)).toBe("all");
+    }
+  );
 });
