@@ -1,7 +1,6 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/instructor";
-import { getCoursesByInstructor, getLessonCountForCourse } from "~/services/courseService";
-import { getEnrollmentCountForCourse } from "~/services/enrollmentService";
+import { getInstructorAnalytics } from "~/services/instructorAnalyticsService";
 import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
@@ -11,6 +10,8 @@ import { AlertTriangle, BookOpen, GraduationCap, Plus, Users } from "lucide-reac
 import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
 import { CourseStatus, UserRole } from "~/db/schema";
+import { formatPrice } from "~/lib/utils";
+import { DollarSign } from "lucide-react";
 
 export function meta() {
   return [
@@ -36,27 +37,9 @@ export async function loader({ request }: Route.LoaderArgs) {
     });
   }
 
-  const instructorCourses = getCoursesByInstructor(currentUserId);
+  const analytics = getInstructorAnalytics(currentUserId);
 
-  const coursesWithStats = instructorCourses.map((course) => {
-    const lessonCount = getLessonCountForCourse(course.id);
-    const enrollmentCount = getEnrollmentCountForCourse(course.id);
-
-    return {
-      id: course.id,
-      title: course.title,
-      slug: course.slug,
-      description: course.description,
-      status: course.status,
-      coverImageUrl: course.coverImageUrl,
-      lessonCount,
-      enrollmentCount,
-      createdAt: course.createdAt,
-      updatedAt: course.updatedAt,
-    };
-  });
-
-  return { courses: coursesWithStats };
+  return { summary: analytics.summary, courses: analytics.courses };
 }
 
 function statusBadge(status: string) {
@@ -121,7 +104,7 @@ export function HydrateFallback() {
 export default function InstructorDashboard({
   loaderData,
 }: Route.ComponentProps) {
-  const { courses } = loaderData;
+  const { summary, courses } = loaderData;
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -164,6 +147,29 @@ export default function InstructorDashboard({
           </Link>
         </div>
       ) : (
+        <>
+        <div className="mb-8 grid gap-4 sm:grid-cols-2">
+          <Card>
+            <CardContent className="flex items-center gap-3">
+              <Users className="size-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Students</p>
+                <p className="text-2xl font-bold">{summary.students}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-3">
+              <DollarSign className="size-5 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Earnings</p>
+                <p className="text-2xl font-bold">
+                  {formatPrice(summary.earnings)}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {courses.map((course) => (
             <Card key={course.id} className="flex flex-col overflow-hidden pt-0">
@@ -200,9 +206,13 @@ export default function InstructorDashboard({
                   <div className="flex items-center gap-1.5">
                     <Users className="size-4" />
                     <span>
-                      {course.enrollmentCount}{" "}
-                      {course.enrollmentCount === 1 ? "student" : "students"}
+                      {course.students}{" "}
+                      {course.students === 1 ? "student" : "students"}
                     </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <DollarSign className="size-4" />
+                    <span>{formatPrice(course.earnings)}</span>
                   </div>
                 </div>
               </CardContent>
@@ -217,6 +227,7 @@ export default function InstructorDashboard({
             </Card>
           ))}
         </div>
+        </>
       )}
     </div>
   );
