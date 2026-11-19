@@ -1877,6 +1877,7 @@ Go beyond the basics with generics, conditional types, and mapped types.`,
         { userId: students[1].id, score: 0.4, days: 17 },
         { userId: students[1].id, score: 0.9, days: 16 },
         { userId: students[3].id, score: 0.8, days: 10 },
+        { userId: students[2].id, score: 1, days: 4 },
       ].map(({ userId, score, days }) => ({
         userId,
         quizId: course3Quiz1.id,

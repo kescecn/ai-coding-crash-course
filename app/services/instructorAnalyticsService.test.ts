@@ -449,9 +449,17 @@ describe("getInstructorAnalytics", () => {
         .values({ userId: old.id, courseId: base.course.id, pricePaid: 5, country: "US", createdAt: daysBefore(1) })
         .run();
 
+      const quiz = testDb.select().from(schema.quizzes).get()!;
+      testDb
+        .insert(schema.quizAttempts)
+        .values({ userId: old.id, quizId: quiz.id, score: 0, passed: false, attemptedAt: daysBefore(2) })
+        .run();
+
       const result = getInstructorAnalytics(base.instructor.id, "7d", now);
       expect(result.totalEarnings).toBe(1 + 5);
       expect(result.totalStudents).toBe(1); // enrollment cohort unchanged
+      // The old student's recent attempt joins the 7-day quiz average.
+      expect(result.averageQuizScore).toBeCloseTo(0.5);
     });
   });
 

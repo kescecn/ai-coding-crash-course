@@ -190,19 +190,20 @@ export default function InstructorDashboard({
       {courses.length > 0 && (
         <nav aria-label="Date range" className="mb-4 flex flex-wrap gap-2">
           {ANALYTICS_RANGES.map((preset) => (
-            <Link
+            <Button
               key={preset}
-              to={preset === "all" ? "." : `?range=${preset}`}
-              preventScrollReset
-              aria-current={preset === range ? "true" : undefined}
+              asChild
+              size="sm"
+              variant={preset === range ? "default" : "outline"}
             >
-              <Button
-                size="sm"
-                variant={preset === range ? "default" : "outline"}
+              <Link
+                to={preset === "all" ? "." : `?range=${preset}`}
+                preventScrollReset
+                aria-current={preset === range ? "true" : undefined}
               >
                 {RANGE_LABELS[preset]}
-              </Button>
-            </Link>
+              </Link>
+            </Button>
           ))}
         </nav>
       )}
