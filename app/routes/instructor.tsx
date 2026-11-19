@@ -259,7 +259,7 @@ export default function InstructorDashboard({
                     <CheckCircle2 className="size-4" />
                     <span>
                       {course.completionRate === null
-                        ? "No data yet"
+                        ? formatCompletionRate(null)
                         : `${formatCompletionRate(course.completionRate)} completed`}
                     </span>
                   </div>
