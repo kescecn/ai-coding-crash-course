@@ -14,6 +14,11 @@ export function formatPrice(cents: number | null | undefined): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+/** Money earned, in cents → "$X.XX". Unlike formatPrice, zero is "$0.00", not "Free". */
+export function formatEarnings(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
 export function formatDuration(
   minutes: number,
   showHours: boolean,

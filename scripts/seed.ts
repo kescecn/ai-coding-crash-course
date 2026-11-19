@@ -1781,17 +1781,96 @@ You've completed the Building REST APIs course. You now have the skills to build
     `Created 1 team with Bossy McBossface as admin, 1 team purchase, and ${seededCoupons.length} coupons (2 redeemed, 3 available).`
   );
 
+  // ─── Course 3: second course for the demo instructor ───
+  // Gives the instructor dashboard visibly different numbers per course:
+  // 3 students, one regional-price purchase, and one 3-seat team purchase.
+
+  const [course3] = db
+    .insert(schema.courses)
+    .values({
+      title: "Advanced TypeScript Patterns",
+      slug: "advanced-typescript-patterns",
+      description:
+        "Take your TypeScript further with generics, conditional types, and type-level programming.",
+      salesCopy: `## Advanced TypeScript Patterns
+
+Go beyond the basics with generics, conditional types, and mapped types.`,
+      instructorId: instructor1.id,
+      categoryId: catBySlug["programming"].id,
+      status: CourseStatus.Draft,
+      coverImageUrl: "/images/course-typescript.svg",
+      price: 9900,
+      createdAt: daysAgo(20),
+      updatedAt: daysAgo(2),
+    })
+    .returning()
+    .all();
+
+  db.insert(schema.enrollments)
+    .values([
+      { userId: students[1].id, courseId: course3.id, enrolledAt: daysAgo(18) },
+      { userId: students[3].id, courseId: course3.id, enrolledAt: daysAgo(12) },
+      { userId: students[4].id, courseId: course3.id, enrolledAt: daysAgo(12) },
+    ])
+    .run();
+
+  // James bought with a PPP discount (India)
+  db.insert(schema.purchases)
+    .values({
+      userId: students[1].id,
+      courseId: course3.id,
+      pricePaid: 4950,
+      country: "IN",
+      createdAt: daysAgo(18),
+    })
+    .run();
+
+  // Bossy bought 3 seats, Liam and Sophia redeemed two of them
+  const [team3Purchase] = db
+    .insert(schema.purchases)
+    .values({
+      userId: bossy.id,
+      courseId: course3.id,
+      pricePaid: 9900 * 3,
+      country: "US",
+      createdAt: daysAgo(13),
+    })
+    .returning()
+    .all();
+
+  db.insert(schema.coupons)
+    .values(
+      ["TEAM-ADVTS-A1B2C3", "TEAM-ADVTS-D4E5F6", "TEAM-ADVTS-G7H8I9"].map(
+        (code, i) => ({
+          teamId: team1.id,
+          courseId: course3.id,
+          code,
+          purchaseId: team3Purchase.id,
+          createdAt: daysAgo(13),
+          ...(i < 2
+            ? {
+                redeemedByUserId: students[i === 0 ? 3 : 4].id,
+                redeemedAt: daysAgo(12),
+              }
+            : {}),
+        })
+      )
+    )
+    .run();
+
+  console.log("Created course 3 with 3 enrollments and 2 purchases.");
+
   console.log("\n✓ Seed complete!");
   console.log("  Users: 9 (1 admin, 2 instructors, 6 students)");
   console.log("  Categories: 5");
   console.log(
-    `  Courses: 2 (${course1LessonIds.length} + ${course2LessonIds.length} lessons)`
+    `  Courses: 3 (${course1LessonIds.length} + ${course2LessonIds.length} lessons, plus 1 without lessons)`
   );
   console.log("  Quizzes: 3");
-  console.log("  Enrollments: 7");
+  console.log("  Enrollments: 10");
   console.log("  Course ratings: 6");
-  console.log("  Purchases: 6 (5 individual + 1 team)");
-  console.log("  Teams: 1 (with 5 coupons)");
+  console.log("  Purchases: 8 (6 individual + 2 team)");
+  console.log("  Teams: 1 (with 8 coupons)");
 }
 
 seed().catch(console.error);

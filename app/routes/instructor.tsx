@@ -1,13 +1,14 @@
 import { Link } from "react-router";
 import type { Route } from "./+types/instructor";
 import { getCoursesByInstructor, getLessonCountForCourse } from "~/services/courseService";
-import { getEnrollmentCountForCourse } from "~/services/enrollmentService";
+import { getInstructorAnalytics } from "~/services/instructorAnalyticsService";
+import { formatEarnings } from "~/lib/utils";
 import { getCurrentUserId } from "~/lib/session";
 import { getUserById } from "~/services/userService";
 import { Card, CardContent, CardFooter, CardHeader } from "~/components/ui/card";
 import { Button } from "~/components/ui/button";
 import { Skeleton } from "~/components/ui/skeleton";
-import { AlertTriangle, BookOpen, GraduationCap, Plus, Users } from "lucide-react";
+import { AlertTriangle, BookOpen, DollarSign, GraduationCap, Plus, Users } from "lucide-react";
 import { CourseImage } from "~/components/course-image";
 import { data, isRouteErrorResponse } from "react-router";
 import { CourseStatus, UserRole } from "~/db/schema";
@@ -38,9 +39,14 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const instructorCourses = getCoursesByInstructor(currentUserId);
 
+  const analytics = getInstructorAnalytics(currentUserId, "all");
+  const analyticsByCourse = new Map(
+    analytics.courses.map((c) => [c.courseId, c])
+  );
+
   const coursesWithStats = instructorCourses.map((course) => {
     const lessonCount = getLessonCountForCourse(course.id);
-    const enrollmentCount = getEnrollmentCountForCourse(course.id);
+    const courseAnalytics = analyticsByCourse.get(course.id);
 
     return {
       id: course.id,
@@ -50,13 +56,18 @@ export async function loader({ request }: Route.LoaderArgs) {
       status: course.status,
       coverImageUrl: course.coverImageUrl,
       lessonCount,
-      enrollmentCount,
+      studentCount: courseAnalytics?.students ?? 0,
+      earnings: courseAnalytics?.earnings ?? 0,
       createdAt: course.createdAt,
       updatedAt: course.updatedAt,
     };
   });
 
-  return { courses: coursesWithStats };
+  return {
+    courses: coursesWithStats,
+    totalStudents: analytics.totalStudents,
+    totalEarnings: analytics.totalEarnings,
+  };
 }
 
 function statusBadge(status: string) {
@@ -121,7 +132,7 @@ export function HydrateFallback() {
 export default function InstructorDashboard({
   loaderData,
 }: Route.ComponentProps) {
-  const { courses } = loaderData;
+  const { courses, totalStudents, totalEarnings } = loaderData;
 
   return (
     <div className="mx-auto max-w-7xl p-6 lg:p-8">
@@ -148,6 +159,29 @@ export default function InstructorDashboard({
           </Button>
         </Link>
       </div>
+
+      {courses.length > 0 && (
+        <div className="mb-8 grid gap-4 sm:grid-cols-2">
+          <Card>
+            <CardContent className="flex items-center gap-4">
+              <Users className="size-8 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Total students</p>
+                <p className="text-2xl font-bold">{totalStudents}</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="flex items-center gap-4">
+              <DollarSign className="size-8 text-muted-foreground" />
+              <div>
+                <p className="text-sm text-muted-foreground">Total earnings</p>
+                <p className="text-2xl font-bold">{formatEarnings(totalEarnings)}</p>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {courses.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -200,9 +234,13 @@ export default function InstructorDashboard({
                   <div className="flex items-center gap-1.5">
                     <Users className="size-4" />
                     <span>
-                      {course.enrollmentCount}{" "}
-                      {course.enrollmentCount === 1 ? "student" : "students"}
+                      {course.studentCount}{" "}
+                      {course.studentCount === 1 ? "student" : "students"}
                     </span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <DollarSign className="size-4" />
+                    <span>{formatEarnings(course.earnings)} earned</span>
                   </div>
                 </div>
               </CardContent>
